@@ -1,56 +1,95 @@
-library("dplyr")
+#Load tidyverse libraries
+library(tidyverse)
 
-wd <- getwd()
+#Get Data and Cleanup Environment
+url <-
+        "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
+zip <- "UCI HAR Dataset.zip"
+dir <- "UCI HAR Dataset"
+if (!file.exists(zip)) {
+        download.file(url, zip)
+}
+if (!file.exists(dir)) {
+        unzip(zip)
+}
+rm(dir, url, zip)
 
-# X : Features
-# y : Activity
+#read label data
+features <-
+        read_table("./UCI HAR Dataset/features.txt", col_names = F)
+activitylabel <-
+        read_table("./UCI HAR Dataset/activity_labels.txt", col_names = F)
+activitylabel[, 2] <-
+        c("walk", "upstairs", "downstairs", "sit", "stand", "lie")
 
-activityLabels <- read.table(paste(wd, "/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/activity_labels.txt", sep =""))
-activityLabels <- as.character(activityLabels[,2])
+#read training data
+s_train <-
+        read_table("./UCI HAR Dataset/train/subject_train.txt", col_names = F)
+X_train <-
+        read_table("./UCI HAR Dataset/train/X_train.txt", col_names = F)
+y_train <-
+        read_table("./UCI HAR Dataset/train/y_train.txt", col_names = F)
 
-featureLabels <- read.table(paste(wd, "/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/features.txt", sep =""))
-featuresW <- grep("(mean|std)\\(\\)", featureLabels[, 2])
+#read testing data
+s_test <-
+        read_table("./UCI HAR Dataset/test/subject_test.txt", col_names = F)
+X_test <-
+        read_table("./UCI HAR Dataset/test/X_test.txt", col_names = F)
+y_test <-
+        read_table("./UCI HAR Dataset/test/y_test.txt", col_names = F)
 
-features <- featureLabels[featuresW,2]
-measures <- str_replace_all(features, "[()]","")
+#apply column names to training data
+names(X_train) <- as.character(features$X2)
+names(y_train) <- "activity"
+names(s_train) <- "subject"
 
-#load train dataset
-trainx <- read.table(paste(wd, "/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/train/X_train.txt", sep =""))
-trainy <- read.table(paste(wd, "/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/train/y_train.txt", sep =""))
-subject_train <- read.table(paste(wd, "/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/train/subject_train.txt", sep =""))
-trainx <- trainx[,featuresW]
+#apply column names to testing data
+names(X_test) <- as.character(features$X2)
+names(y_test) <- "activity"
+names(s_test) <- "subject"
 
-names(subject_train) <- c("Subject")
-names(trainx) <- measures
-names(trainy) <- c("Activity")
+#combine  training data into a dataframe
+train <- cbind(s_train, X_train, y_train)
+test <- cbind(s_test, X_test, y_test)
+full <- rbind(train, test)
+rm(s_train,
+   X_train,
+   y_train,
+   s_test,
+   X_test,
+   y_test,
+   train,
+   test)
 
-train <- cbind(subject_train, trainx, trainy)
+#define columns wanted
+filter <- grep("-mean..$|-std..$", features$X2, value = TRUE)
+full <- full[, c("subject", filter, "activity")] %>%
+        mutate(activity = factor(activity, levels = activitylabel$X1, labels = activitylabel$X2))
+rm(activitylabel, features, filter)
 
+##reformat variable names
+names(full)[2:19] <- names(full)[2:19] %>%
+        str_replace("^(\\d)*\\s", "") %>%
+        str_replace(".{2}$", "") %>%
+        str_replace("^t", "Time") %>%
+        str_replace("^f", "Frequency") %>%
+        str_replace("AccJerk", "LinearJerk") %>%
+        str_replace("GyroJerk", "AngularJerk") %>%
+        str_replace("Acc", "LinearAcceleration") %>%
+        str_replace("Gyro", "AngularVelocity") %>%
+        str_replace("Mag", "") %>%
+        str_replace("BodyBody", "Body") %>%
+        str_replace("-(m)", "M") %>%
+        str_replace("-(s)", "S")
+        
 
-#load test dataset
-testx <- read.table(paste(wd, "/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/test/X_test.txt", sep =""))
-testy <- read.table(paste(wd, "/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/test/y_test.txt", sep =""))
-subject_test <- read.table(paste(wd, "/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/test/subject_test.txt", sep =""))
-names(subject_test) <- c("Subject")
+##Summarise Full
+means <- group_by(full, activity,subject) %>%
+        summarise_all(mean)
 
-testx <- testx[,featuresW]
+#Output data as text file
+write.table(means, file = "tidydata.txt",row.names = F,col.names = T)
 
-names(subject_test) <- c("Subject")
-names(testx) <- measures
-names(testy) <- c("Activity")
-
-test <- cbind(subject_test, testx, testy)
-
-
-#Merge Datasets
-mds <- rbind(train, test)
-
-mds$ActivityName <- activityLabels[mds$Activity]
-
-mds <- mds[complete.cases(mds),]
-
-tidyds <- mds %>% group_by(Subject, ActivityName) %>% 
-  summarise_at(vars(1:ncol(mds)-1), list(name = mean))
-
-
-write.table(tidyds,"tidy.txt",sep="\t",row.names
+#Optionally remove any extraneous data not in the tidy dataset.
+unlink("UCI HAR Dataset",recursive = T)
+unlink("UCI HAR Dataset.zip")
